@@ -9,7 +9,7 @@ const OAUTH2_ENDPOINT = "https://discord.com/api/oauth2";
 const OAUTH2_AUTHORIZATION_ENDPOINT = OAUTH2_ENDPOINT + "/authorize";
 const OAUTH2_TOKEN_ENDPOINT = OAUTH2_ENDPOINT + "/token";
 const OAUTH2_CURRENT_AUTHORIZATION_ENDPOINT = OAUTH2_ENDPOINT + "/@me";
-const { CLIENT_ID, REDIRECT_URI, CLIENT_SECRET, SESSION_SECRET } = process.env;
+const { CLIENT_ID, REDIRECT_URI, CLIENT_SECRET, SESSION_SECRET, SERVER_PORT } = process.env;
 
 function build_url(endpoint, parameters) {
   return new URL("?" + new URLSearchParams([...Object.entries(parameters)]).toString(), endpoint).toString();
@@ -119,4 +119,4 @@ app.get("/callback", (req, res) => {
     console.error(err);
   });
 });
-app.listen(3000);
+app.listen(SERVER_PORT);

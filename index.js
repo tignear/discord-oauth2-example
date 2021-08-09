@@ -12,15 +12,53 @@ const OAUTH2_ENDPOINT = "https://discord.com/api/oauth2";
 const OAUTH2_AUTHORIZATION_ENDPOINT = OAUTH2_ENDPOINT + "/authorize";
 const OAUTH2_TOKEN_ENDPOINT = OAUTH2_ENDPOINT + "/token";
 const OAUTH2_CURRENT_AUTHORIZATION_ENDPOINT = OAUTH2_ENDPOINT + "/@me";
-const { CLIENT_ID, REDIRECT_URI, CLIENT_SECRET, SESSION_SECRET, SERVER_PORT } = process.env;
-
+const { CLIENT_ID, REDIRECT_URI, CLIENT_SECRET, SESSION_SECRET, SERVER_PORT,DEBUG } = process.env;
+const DISALLOWED_FETCH_DEST = [
+  "audio",
+  "audioworklet",
+  "embed",
+  "empty",
+  "font",
+  "frame",
+  "iframe",
+  "image",
+  "manifest",
+  "object",
+  "paintworklet",
+  "report",
+  "script",
+  "serviceworker",
+  "sharedworker",
+  "style",
+  "track",
+  "video",
+  "worker",
+  "xslt"
+];
+const DISALLOWED_FETCH_MODE = [
+  "cors",
+  "no-cors",
+  "same-origin",
+  "websocket",
+];
 function build_url(endpoint, parameters) {
   return new URL("?" + new URLSearchParams([...Object.entries(parameters)]).toString(), endpoint).toString();
 }
 function generate_state() {
   return crypto.randomBytes(32).toString("base64url");
 }
-
+function get_fetch_metadata(req) {
+  const site = req.header("sec-fetch-site");
+  if (site == null) {
+    return null;
+  }
+  return {
+    site,
+    dest: req.header("sec-fetch-dest"),
+    mode: req.header("sec-fetch-mode"),
+    user: req.header("sec-fetch-user"),
+  };
+}
 /**
  * application code
  */
@@ -33,12 +71,12 @@ app.use(session({
   resave: false,
   cookie: {
     // prevents CSRF
-    sameSite: "lax", 
+    sameSite: "lax",
     // mitigates session hijack by XSS 
-    httpOnly: true, 
+    httpOnly: true,
     // prevents session hijack by MITM
     // However, there is a blame for what to do if this is enabled when testing locally. 
-    secure: true /* false */
+    secure: !DEBUG /* false */
   },
   saveUninitialized: true,
   name: "sessionId"
@@ -50,6 +88,29 @@ app.get('/', (_req, res) => {
 
 
 app.get('/login', (req, res) => {
+  function validate_fetch_metadata(req) {
+    const meta = get_fetch_metadata(req);
+    if (!meta) {
+      return true;
+    }
+    if (["cross-site", "same-site"].includes(meta.site)) {
+      return false;
+    }
+    if (DISALLOWED_FETCH_DEST.includes(meta.mode)) {
+      return false;
+    }
+    if (DISALLOWED_FETCH_MODE.includes(meta.mode)) {
+      return false;
+    }
+    if (meta.user != "?1") {
+      return false;
+    }
+    return true;
+  }
+  if (!validate_fetch_metadata(req)) {
+    res.status(400).send("invalid request");
+    return;
+  }
   const state = generate_state();
   const url = build_url(OAUTH2_AUTHORIZATION_ENDPOINT, {
     client_id: CLIENT_ID,
@@ -137,6 +198,26 @@ async function callback(req, res) {
   return res.status(400).send("invalid request");
 }
 app.get("/callback", (req, res) => {
+  function validate_fetch_metadata(req) {
+    const meta = get_fetch_metadata(req);
+    if (!meta) {
+      return true;
+    }
+    if (["same-origin", "same-site", "none"].includes(meta.site)) {
+      return false;
+    }
+    if (DISALLOWED_FETCH_DEST.includes(meta.mode)) {
+      return false;
+    }
+    if (DISALLOWED_FETCH_MODE.includes(meta.mode)) {
+      return false;
+    }
+    return true;
+  }
+  if (!validate_fetch_metadata(req)) {
+    res.status(400).send("invalid request");
+    return;
+  }
   callback(req, res).catch(err => {
     console.error(err);
   });

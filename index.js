@@ -2,7 +2,7 @@ const express = require("express");
 const session = require("express-session");
 const crypto = require("crypto");
 const fetch = require("node-fetch");
-
+const helmet = require("helmet");
 require('dotenv').config();
 
 /**
@@ -27,13 +27,13 @@ function generate_state() {
 const app = express();
 // use template engine to preventing HTML injection
 app.set("view engine", "ejs");
-
+app.use(helmet());
 app.use(session({
   secret: SESSION_SECRET,
   resave: false,
-  
   cookie: { /* prevents CSRF */ sameSite: "lax", /* mitigates session hijack by XSS */ httpOnly: true, /* prevents session hijack by MITM */ secure: true },
-  saveUninitialized: true
+  saveUninitialized: true,
+  name: "sessionId"
 }));
 
 app.get('/', (_req, res) => {

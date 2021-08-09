@@ -2,9 +2,12 @@ const express = require("express");
 const session = require("express-session");
 const crypto = require("crypto");
 const fetch = require("node-fetch");
-require('dotenv').config();
-const app = express();
 
+require('dotenv').config();
+
+/**
+ * constants
+ */
 const OAUTH2_ENDPOINT = "https://discord.com/api/oauth2";
 const OAUTH2_AUTHORIZATION_ENDPOINT = OAUTH2_ENDPOINT + "/authorize";
 const OAUTH2_TOKEN_ENDPOINT = OAUTH2_ENDPOINT + "/token";
@@ -17,15 +20,23 @@ function build_url(endpoint, parameters) {
 function generate_state() {
   return crypto.randomBytes(32).toString("base64url");
 }
+
+/**
+ * application code
+ */
+const app = express();
+// use template engine to preventing HTML injection
 app.set("view engine", "ejs");
+
 app.use(session({
   secret: SESSION_SECRET,
   resave: false,
-  cookie: { sameSite: "lax" },
+  
+  cookie: { /* prevents CSRF */ sameSite: "lax", /* mitigates session hijack by XSS */ httpOnly: true, /* prevents session hijack by MITM */ secure: true },
   saveUninitialized: true
 }));
 
-app.get('/', (req, res) => {
+app.get('/', (_req, res) => {
   res.send('<a href="/login"> login </a>');
 });
 
@@ -37,7 +48,7 @@ app.get('/login', (req, res) => {
     response_type: "code",
     scope: ["identify"].join(" "),
     redirect_uri: REDIRECT_URI,
-    //prompt: ["none"].join(" "),
+    prompt: ["none"].join(" "),
     state,
   });
   req.session.state = state;
@@ -48,10 +59,11 @@ async function callback_success(req, res) {
   const { state: queryState, code } = req.query;
 
   if (queryState == null || code == null) {
-    res.status(400).send("insufficient query parameter.");
+    res.status(400).send("insufficient query parameter");
     return;
   }
   try {
+    // prevents session hijack by session fixation
     await new Promise((resolve, reject) => req.session.regenerate((err) => {
       if (err) {
         reject(err);
@@ -64,8 +76,9 @@ async function callback_success(req, res) {
     res.status(500).send("internal server error!");
     return;
   }
+  // prevent OAuth CSRF
   if (sessionState !== queryState) {
-    res.status(400).send("invalid state.");
+    res.status(400).send("invalid state");
     return;
   }
   const token_response = await fetch(OAUTH2_TOKEN_ENDPOINT, {
@@ -82,7 +95,7 @@ async function callback_success(req, res) {
     })
   });
   if (token_response.status !== 200) {
-    res.status(500).send("failed to exchange code.");
+    res.status(500).send("failed to exchange code");
     return;
   }
   const { access_token } = await token_response.json();
@@ -92,7 +105,7 @@ async function callback_success(req, res) {
     },
   });
   if (current_authorization.status !== 200) {
-    res.status(500).send("failed to fetch authorization information.");
+    res.status(500).send("failed to fetch authorization information");
     return;
   }
   const { user: { username, discriminator } } = await current_authorization.json();
@@ -103,15 +116,16 @@ async function callback_success(req, res) {
   res.render("./authorized.ejs", data);
 }
 async function callback(req, res) {
-  if ("code" in req.query) {
-    await callback_success(req, res);
-    return;
-  }
   if ("error" in req.query) {
     const { error } = req.query;
     res.render("./authorize_error.ejs", { error });
     return;
   }
+  if ("code" in req.query) {
+    await callback_success(req, res);
+    return;
+  }
+
   return res.status(400).send("invalid request");
 }
 app.get("/callback", (req, res) => {

@@ -31,7 +31,15 @@ app.use(helmet());
 app.use(session({
   secret: SESSION_SECRET,
   resave: false,
-  cookie: { /* prevents CSRF */ sameSite: "lax", /* mitigates session hijack by XSS */ httpOnly: true, /* prevents session hijack by MITM */ secure: true },
+  cookie: {
+    // prevents CSRF
+    sameSite: "lax", 
+    // mitigates session hijack by XSS 
+    httpOnly: true, 
+    // prevents session hijack by MITM
+    // However, there is a blame for what to do if this is enabled when testing locally. 
+    secure: true /* false */
+  },
   saveUninitialized: true,
   name: "sessionId"
 }));

@@ -12,7 +12,7 @@ const OAUTH2_ENDPOINT = "https://discord.com/api/oauth2";
 const OAUTH2_AUTHORIZATION_ENDPOINT = OAUTH2_ENDPOINT + "/authorize";
 const OAUTH2_TOKEN_ENDPOINT = OAUTH2_ENDPOINT + "/token";
 const OAUTH2_CURRENT_AUTHORIZATION_ENDPOINT = OAUTH2_ENDPOINT + "/@me";
-const { CLIENT_ID, REDIRECT_URI, CLIENT_SECRET, SESSION_SECRET, SERVER_PORT,DEBUG } = process.env;
+const { CLIENT_ID, REDIRECT_URI, CLIENT_SECRET, SESSION_SECRET, SERVER_PORT, DEBUG } = process.env;
 const DISALLOWED_FETCH_DEST = [
   "audio",
   "audioworklet",
@@ -59,6 +59,11 @@ function get_fetch_metadata(req) {
     user: req.header("sec-fetch-user"),
   };
 }
+function eq_set(as, bs) {
+  if (as.size !== bs.size) return false;
+  for (var a of as) if (!bs.has(a)) return false;
+  return true;
+}
 /**
  * application code
  */
@@ -76,7 +81,7 @@ app.use(session({
     httpOnly: true,
     // prevents session hijack by MITM
     // However, there is a blame for what to do if this is enabled when testing locally. 
-    secure: !Number(DEBUG) /* false */
+    secure: process.env.NODE_ENV !== "development"
   },
   saveUninitialized: true,
   name: "sessionId"
@@ -86,6 +91,7 @@ app.get('/', (_req, res) => {
   res.send('<a href="/login"> login </a>');
 });
 
+const SCOPE = ["identify", "email"];
 
 app.get('/login', (req, res) => {
   function validate_fetch_metadata(req) {
@@ -115,7 +121,7 @@ app.get('/login', (req, res) => {
   const url = build_url(OAUTH2_AUTHORIZATION_ENDPOINT, {
     client_id: CLIENT_ID,
     response_type: "code",
-    scope: ["identify"].join(" "),
+    scope: SCOPE.join(" "),
     redirect_uri: REDIRECT_URI,
     prompt: ["none"].join(" "),
     state,
@@ -167,12 +173,18 @@ async function callback_success(req, res) {
     res.status(500).send("failed to exchange code");
     return;
   }
-  const { access_token } = await token_response.json();
+  const token_response_data = await token_response.json();
+  const { access_token, scope } = token_response_data;
+  if (!eq_set(new Set(scope.split(" ")), new Set(SCOPE))) {
+    res.status(400).send("insufficient granted scope");
+    return;
+  }
   const current_authorization = await fetch(OAUTH2_CURRENT_AUTHORIZATION_ENDPOINT, {
     headers: {
       "Authorization": `Bearer ${access_token}`,
     },
   });
+
   if (current_authorization.status !== 200) {
     res.status(500).send("failed to fetch authorization information");
     return;
